@@ -14,8 +14,15 @@ struct ChatScreenView: View {
         Message(content: "Hello! How can I help you today?", isFromUser: false)
     ]
     
-    @State private var currentInput: String = ""
+    @State private var userInput: String = ""
     @State private var showTypingIndicator: Bool = false
+    
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    
+    @State private var session: LanguageModelSession?
+    @State private var streamingTask: Task<Void, Never>?
+    @State private var languageModel = SystemLanguageModel.default
     
     var body: some View {
         NavigationStack {
@@ -30,6 +37,11 @@ struct ChatScreenView: View {
             .navigationTitle("Foundation Buddy")
             .navigationSubtitle("Your Apple Intelligence Chat Assistant")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .alert("Oops!", isPresented: $showAlert) {
+            Button("OK") {}
+        } message: {
+            Text(alertMessage)
         }
     }
     
@@ -59,11 +71,11 @@ struct ChatScreenView: View {
     
     private var messageInputBar: some View {
         ZStack {
-            TextField("Ask Anything...", text: $currentInput, axis: .vertical)
+            TextField("Ask Anything...", text: $userInput, axis: .vertical)
                 .textFieldStyle(.plain)
                 .disabled(showTypingIndicator)
                 .onSubmit {
-                    if isValidInput(currentInput) {
+                    if isValidInput(userInput) {
                         handleSendAction()
                     }
                 }
@@ -76,7 +88,7 @@ struct ChatScreenView: View {
                         .foregroundStyle(inputIsIdle ? Color.gray.opacity(0.6) : .primary)
                         .font(.system(size: 32))
                 }
-                .disabled(!isValidInput(currentInput))
+                .disabled(!isValidInput(userInput))
                 .glassEffect(.regular.interactive())
                 .padding(.trailing, 8)
             }
@@ -85,7 +97,7 @@ struct ChatScreenView: View {
     }
     
     private var inputIsIdle: Bool {
-        return currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !showTypingIndicator
+        return userInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !showTypingIndicator
     }
     
     private func isValidInput(_ text: String) -> Bool {
@@ -94,18 +106,74 @@ struct ChatScreenView: View {
     
     @MainActor
     private func handleSendAction() {
-        let userMessage = Message(content: currentInput, isFromUser: true)
-        conversationHistory.append(userMessage)
-        currentInput = ""
-        
+        if showTypingIndicator {
+            streamingTask?.cancel()
+        } else {
+            guard languageModel.isAvailable else {
+                showAlert(message: "The language model is not available. Reason: \(describeModelAvailability(for: languageModel.availability))")
+                return
+            }
+            sendMessage()
+        }
+    }
+    
+    @MainActor
+    private func sendMessage() {
         showTypingIndicator = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            let message = Message(content: "Response from Apple Foundation Model", isFromUser: false)
-            conversationHistory.append(message)
+        let userMessage = Message(content: userInput, isFromUser: true)
+        conversationHistory.append(userMessage)
+        
+        let prompt = Prompt(userInput)
+        let options = GenerationOptions()
+        
+        userInput = ""
+        conversationHistory.append(Message(content: "", isFromUser: false))
+        
+        streamingTask = Task {
+            do {
+                let currentSession = LanguageModelSession(model: languageModel)
+                self.session = currentSession
+                
+                let response = try await currentSession.respond(to: prompt, options: options)
+                updateChat(response: response.content)
+            } catch {
+                showAlert(message: "Model failed to generate response: \(error.localizedDescription)")
+            }
+            
             showTypingIndicator = false
         }
     }
     
+    @MainActor
+    private func updateChat(response: String) {
+        conversationHistory[conversationHistory.count - 1].content = response
+    }
+    
+    private func describeModelAvailability(for availability: SystemLanguageModel.Availability) -> String {
+        switch availability {
+        case .available:
+            return "Available"
+        case .unavailable(let reason):
+            switch reason {
+            case .deviceNotEligible:
+                return "Device not eligible"
+            case .appleIntelligenceNotEnabled:
+                return "Apple Intelligence not enabled in Settings"
+            case .modelNotReady:
+                return "Model assets not downloaded"
+            @unknown default:
+                return "Unknown reason"
+            }
+        @unknown default:
+            return "Unknown availability"
+        }
+    }
+    
+    @MainActor
+    private func showAlert(message: String) {
+        alertMessage = message
+        showAlert.toggle()
+    }
     
     private func scrollToBottom(proxy: ScrollViewProxy) {
         guard let lastMessageId = conversationHistory.last?.id else { return }
@@ -113,5 +181,4 @@ struct ChatScreenView: View {
             proxy.scrollTo(lastMessageId, anchor: .bottom)
         }
     }
-    
 }
