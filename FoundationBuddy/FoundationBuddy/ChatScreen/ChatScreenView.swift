@@ -24,19 +24,53 @@ struct ChatScreenView: View {
     @State private var streamingTask: Task<Void, Never>?
     @State private var languageModel = SystemLanguageModel.default
     
+    @State private var useStreamingMode = true
+    @State private var showSettingsMenu = false
+    @State private var isChatVisible: Bool = true
+    
     var body: some View {
         NavigationStack {
             ZStack {
-                VStack(spacing: 0) {
-                    conversationView
-                    Spacer()
-                    messageInputBar
-                        .padding()
+                if isChatVisible {
+                    VStack(spacing: 0) {
+                        conversationView
+                        Spacer()
+                        messageInputBar
+                            .padding()
+                    }
+                    .transition(.opacity)
                 }
             }
             .navigationTitle("Foundation Buddy")
             .navigationSubtitle("Your Apple Intelligence Chat Assistant")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button {
+                            useStreamingMode = true
+                        } label: {
+                            Label("Streaming Mode", systemImage: "text.bubble")
+                        }
+
+                        Button {
+                            useStreamingMode = false
+                        } label: {
+                            Label("Respond Mode", systemImage: "bolt.fill")
+                        }
+
+                        Divider()
+
+                        Button {
+                            clearChat()
+                        } label: {
+                            Label("Clear Chat", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
+            }
         }
         .alert("Oops!", isPresented: $showAlert) {
             Button("OK") {}
@@ -134,8 +168,15 @@ struct ChatScreenView: View {
                 let currentSession = LanguageModelSession(model: languageModel)
                 self.session = currentSession
                 
-                let response = try await currentSession.respond(to: prompt, options: options)
-                updateChat(response: response.content)
+                if useStreamingMode {
+                    let streamResponse = currentSession.streamResponse(to: prompt, options: options)
+                    for try await partialResponse in streamResponse {
+                        updateChat(response: partialResponse)
+                    }
+                } else {
+                    let response = try await currentSession.respond(to: prompt, options: options)
+                    updateChat(response: response.content)
+                }
             } catch {
                 showAlert(message: "Model failed to generate response: \(error.localizedDescription)")
             }
@@ -179,6 +220,25 @@ struct ChatScreenView: View {
         guard let lastMessageId = conversationHistory.last?.id else { return }
         withAnimation {
             proxy.scrollTo(lastMessageId, anchor: .bottom)
+        }
+    }
+    
+    private func clearChat() {
+        streamingTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isChatVisible = false
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            userInput = ""
+            showTypingIndicator = false
+            conversationHistory = [
+                Message(content: "Hello! How can I help you today?", isFromUser: false)
+            ]
+
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isChatVisible = true
+            }
         }
     }
 }
