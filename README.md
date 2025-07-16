@@ -1,11 +1,19 @@
 # Foundation Buddy — Apple Intelligence Assistant
 
 **Foundation Buddy** is a SwiftUI app for iOS 26+ that uses Apple’s Foundation Models Framework to run AI fully on-device, with Liquid Glass UI and streaming or structured response modes. This project serves as a practical example of how Foundation Models can be explored and integrated into native Apple apps.
+
 ---
 
 ## Screenshots
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/4508dd15-f2e1-49db-8830-a016638731e7" alt="Light" width="45%" />
+  &nbsp;&nbsp;
+  <img src="https://github.com/user-attachments/assets/b9c57de2-e19c-434f-b709-631bf641bb5f" alt="Dark" width="45%" />
+</p>
 
+
+---
 
 ## Features
 
